@@ -48,3 +48,7 @@ search path, you can run "make qemu".
 
 To print information about each process type: Ctrl-p, 
 To quit qemu type: Ctrl-a x.
+
+gdb:
+window: make CPUS=1 qemu-gdb
+another window: gdb-multiarch
