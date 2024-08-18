@@ -287,6 +287,9 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+  
+  np->mask = p->mask;
+
   np->sz = p->sz;
 
   // copy saved user registers.
@@ -653,4 +656,16 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+uint64
+get_nproc(void)
+{
+  struct proc *p;
+  uint64 nproc = 0;
+  for(p = proc; p < &proc[NPROC]; p++){
+    if(p->state != UNUSED)
+      nproc++;
+  }
+  return nproc;
 }
