@@ -118,7 +118,7 @@ sys_sysinfo(void)
     return -1;
   k_sysInfo.freemem = get_freemem();
   k_sysInfo.nproc = get_nproc();
-  // 将内核的sysinfo结构体信息复制到用户空间去 要么一个成员一个成员复制
+  // 将内核的sysinfo结构体信息复制到用户空间去
   if(copyout(p->pagetable, userp_sysInfo, (char *)&k_sysInfo, sizeof(k_sysInfo)) < 0)
     return -1;
   return 0;
