@@ -77,10 +77,35 @@ sys_sleep(void)
 
 
 #ifdef LAB_PGTBL
+extern pte_t * walk(pagetable_t, uint64, int);
 int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
+  uint64 user_va;
+  int page_nums;
+  uint64 buf; // to store the results into a bitmask
+  uint64 bitmask = 0;
+  struct proc *p = myproc();
+  pagetable_t pagetable = p->pagetable;
+  pte_t *pte;
+  if(argaddr(0, &user_va) < 0)
+    return -1;
+  if(argint(1, &page_nums) < 0)
+    return -1;
+  if(argaddr(2, &buf) < 0)
+    return -1;
+  if(page_nums > MAXPAGE)
+    return -1;
+  for(int i = 0; i < page_nums; user_va += PGSIZE, i++) {
+    if((pte = walk(pagetable, user_va, 0)) == 0)
+      return -1;
+    if(*pte & PTE_A) {
+      bitmask |= (1 << i);
+      *pte &= (~PTE_A);
+    }
+  }
+  copyout(p->pagetable, buf, (char *)&bitmask, sizeof(bitmask));
   return 0;
 }
 #endif

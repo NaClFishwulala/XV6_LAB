@@ -432,3 +432,32 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+void            
+vmprint(pagetable_t pagetable)
+{
+  printf("page table %p\n", pagetable);
+  raw_vmprint(pagetable, 2);
+}
+
+void            
+raw_vmprint(pagetable_t pagetable, int level)
+{
+  for(int i = 0; i < 512; i++) {
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V) {
+      uint64 child = PTE2PA(pte);
+      // 由于根页表和中间页表项不直接访问物理内存，它的PTE_R、PTE_W、PTE_X标志位通常都是未设置的。
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0) {
+        if(level == 2) {
+          printf("..%d: pte %p pa %p\n",i, pte, child);
+          raw_vmprint((pagetable_t)child, 1);
+        } else {
+          printf(".. ..%d: pte %p pa %p\n",i, pte, child);
+          raw_vmprint((pagetable_t)child, 0);
+        }
+      } else 
+        printf(".. .. ..%d: pte %p pa %p\n",i, pte, child);
+    }
+  }
+}
