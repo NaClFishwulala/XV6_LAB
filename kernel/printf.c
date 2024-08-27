@@ -132,3 +132,14 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+void 
+backtrace(void)
+{
+  uint64 fp = r_fp();
+  printf("backtrace:\n");
+  while(fp != PGROUNDDOWN(fp)) {  // 在最后的fp会指向当前分配页
+    printf("%p\n", *(uint64 *)(fp - 8));
+    fp = *(uint64 *)(fp - 16);
+  }
+}
