@@ -67,7 +67,11 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } else if(r_scause() == 15){  // 当父进程或子进程试图对共享的只读内存页进行写操作时，由于这些页没有写权限标记位，CPU会产生一个缺页错误（page fault）。
+    uint64 va = r_stval();
+    if(cowfault(p->pagetable, va) < 0)
+      p->killed = 1;
+  } else{
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
@@ -218,3 +222,30 @@ devintr()
   }
 }
 
+int           
+cowfault(pagetable_t pagetable, uint64 va)
+{
+  if(va >= MAXVA)
+    return -1;
+  pte_t *pte = walk(pagetable, va, 0);
+  if(pte == 0)
+    return -1;
+
+  if((*pte & PTE_V) == 0 || (*pte & PTE_U) == 0 || (*pte & PTE_COW) == 0)
+    return -1;
+
+  uint64 pa = PTE2PA(*pte);
+  uint64 ka = (uint64)kalloc();
+  if(ka == 0) {
+    return -1;
+  } 
+  
+  
+  memmove((void *)ka, (void *)pa, PGSIZE);
+  kfree((void *)pa);
+
+  uint64 flag = PTE_FLAGS(*pte);
+  *pte = PA2PTE(ka) | flag | PTE_W;
+  *pte &= ~PTE_COW;
+  return 0;
+}

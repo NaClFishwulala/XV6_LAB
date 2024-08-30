@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -303,22 +305,21 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
+    pa = PTE2PA(*pte);  // 获取到了old pagetable的物理地址
+
+    *pte &= ~PTE_W; // 清除W位
+    *pte |= PTE_COW;    //设置COW位
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){ // 将父进程的物理页面映射给子进程
       goto err;
     }
+    incref(pa);
   }
   return 0;
 
@@ -347,12 +348,28 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
+  
+  // MMU 没有参与copyout
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    pa0 = walkaddr(pagetable, va0);
+    if(va0 > MAXVA)
+      return -1;
+    pte_t *pte = walk(pagetable, va0, 0);
+    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
+      return -1;
+
+    if((*pte & PTE_W) == 0 && (*pte & PTE_COW)) {
+      if(cowfault(pagetable, va0) < 0) {
+        myproc()->killed = 1;
+        return -1;
+      }
+    }
+
+    pa0 = PTE2PA(*pte);
     if(pa0 == 0)
       return -1;
+
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
