@@ -521,7 +521,7 @@ sys_symlink(void)
   }
 
   begin_op();
-  ip = create(path, T_FILE, 0, 0);  //  create会使用 ilock(ip) 加锁
+  ip = create(path, T_SYMLINK, 0, 0);  //  create会使用 ilock(ip) 加锁
   if(ip == 0){
     end_op();
     return -1;
