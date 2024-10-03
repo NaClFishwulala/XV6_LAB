@@ -1,0 +1,18 @@
+{
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true,
+    "files.associations": {
+      "file.h": "c",
+      "types.h": "c",
+      "defs.h": "c",
+      "param.h": "c",
+      "stat.h": "c",
+      "proc.h": "c",
+      "fs.h": "c",
+      "fcntl.h": "c",
+      "netfwd": "c",
+      "random": "c",
+      "string_view": "c"
+    }
+}
+

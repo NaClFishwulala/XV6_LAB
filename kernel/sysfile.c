@@ -484,3 +484,84 @@ sys_pipe(void)
   }
   return 0;
 }
+
+uint64 
+sys_mmap(void)
+{
+  uint64 addr;
+  int length;
+  int prot, flags, fd;
+  int off_set;
+  struct file * m_file;
+  struct proc* p = myproc();
+
+  if(argaddr(0, &addr) < 0 || argint(1, &length) < 0 || argint(2, &prot) < 0 || argint(3, &flags) < 0 || 
+      argfd(4, &fd, &m_file) < 0 || argint(5, &off_set) < 0)
+    return -1;
+  
+  // 如果在要求写回的情况下 fd只读 但是prot要求可写 返回错误
+  if(flags == MAP_SHARED && m_file->writable == 0 && (prot & PROT_WRITE))
+    return -1;
+
+  // 如果没有足够多的虚拟地址空间
+  if(p->sz + length > MAXVA)
+    return -1;
+  
+  // 将vma添加到进程的映射区域的表中
+  for(int i = 0; i < VMAMAXSIZE; i++) {
+    if(p->vma[i].valid == 0) {
+      p->vma[i].valid = 1;
+      p->vma[i].addrs = p->sz;      // 将当前进程的虚拟地址空间的末尾地址（p->sz）分配给新的内存映射区域的起始地址
+      p->vma[i].length = length;
+      p->vma[i].prot = prot;
+      p->vma[i].flags = flags;
+      p->vma[i].fd = fd;
+      p->vma[i].m_file = m_file;
+      p->vma[i].off_set = off_set;
+
+      // 增加文件引用计数
+      filedup(m_file);
+
+      p->sz += length;
+      return p->vma[i].addrs;
+    }
+  }
+  return -1;
+}
+
+uint64 
+sys_munmap(void)
+{
+  uint64 addr;
+  int length;
+  struct proc *p = myproc();
+  if(argaddr(0, &addr) < 0 || argint(1, &length) < 0)
+    return -1;
+  // 找到addr对应的vma范围并取消指定页面
+  for(int i = 0; i < VMAMAXSIZE; i++) {
+    if(p->vma[i].valid == 1 && (addr >= p->vma[i].addrs && addr < p->vma[i].addrs + p->vma[i].length)) {
+      // 如果取消映射的部分已经被修改并且file的flag是MAP_SHARED 则需要写回文件
+      if(p->vma[i].flags == MAP_SHARED && (p->vma[i].prot & PROT_WRITE)) {
+        filewrite(p->vma[i].m_file, addr, length);
+      }
+
+      uvmunmap(p->pagetable, addr, length / PGSIZE, 1);
+
+      if(addr == p->vma[i].addrs) { // 如果取消映射的是开头部分
+        p->vma[i].addrs += length;
+        p->vma[i].length -= length;
+      } else {
+        // 取消映射的是结尾部分
+        p->vma[i].length -= length;
+      }
+      // 如果是全部取消映射, 则需要减少引用计数
+      if(p->vma[i].length == 0) {
+        fileclose(p->vma[i].m_file);
+        p->vma[i].valid = 0;        
+      }
+
+      return 0;
+    }
+  }
+  return -1;
+}

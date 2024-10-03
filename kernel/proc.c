@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
 
 struct cpu cpus[NCPU];
 
@@ -141,6 +142,7 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  memset(&p->vma, 0, sizeof(p->vma));
   return p;
 }
 
@@ -164,6 +166,17 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  for(int i = 0; i < VMAMAXSIZE; i++) {
+    p->vma[i].addrs = 0;
+    p->vma[i].valid = 0;
+    p->vma[i].m_file = 0;
+    p->vma[i].length = 0;
+    p->vma[i].prot = 0;
+    p->vma[i].flags = 0;
+    p->vma[i].fd = 0;
+    p->vma[i].off_set = 0;
+  }
 }
 
 // Create a user page table for a given process,
@@ -295,6 +308,19 @@ fork(void)
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
 
+  for(i = 0; i < VMAMAXSIZE; i++) {
+    np->vma[i].addrs = p->vma[i].addrs;
+    np->vma[i].valid = p->vma[i].valid;
+    np->vma[i].m_file = p->vma[i].m_file;
+    np->vma[i].length = p->vma[i].length;
+    np->vma[i].prot = p->vma[i].prot;
+    np->vma[i].flags = p->vma[i].flags;
+    np->vma[i].fd = p->vma[i].fd;
+    np->vma[i].off_set = p->vma[i].off_set;
+    if(np->vma[i].valid)
+      filedup(np->vma[i].m_file);
+  }
+
   // increment reference counts on open file descriptors.
   for(i = 0; i < NOFILE; i++)
     if(p->ofile[i])
@@ -343,6 +369,19 @@ exit(int status)
 
   if(p == initproc)
     panic("init exiting");
+
+  // vma取消映射
+  for(int i = 0; i < VMAMAXSIZE; i++) {
+    if(p->vma[i].valid == 1) {
+      // 如果取消映射的部分已经被修改并且file的flag是MAP_SHARED 则需要写回文件
+      if(p->vma[i].flags == MAP_SHARED && (p->vma[i].prot & PROT_WRITE)) {
+        filewrite(p->vma[i].m_file, p->vma[i].addrs, p->vma[i].length);
+      }
+      uvmunmap(p->pagetable, p->vma[i].addrs, p->vma[i].length / PGSIZE, 1);
+      fileclose(p->vma[i].m_file);
+      p->vma[i].valid = 0;
+    }
+  }
 
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){

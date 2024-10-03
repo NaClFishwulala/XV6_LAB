@@ -5,6 +5,10 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fs.h"
+#include "sleeplock.h"
+#include "file.h"
+#include "fcntl.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -27,6 +31,40 @@ void
 trapinithart(void)
 {
   w_stvec((uint64)kernelvec);
+}
+
+int
+mmap_hander(pagetable_t pagetable, uint64 va)
+{
+  struct proc *p = myproc();
+  int pte_flags;
+  // 分配一页物理内存
+  uint64 pa = (uint64)kalloc();
+  if(pa == 0)
+    return -1;
+  memset((void *)pa, 0, PGSIZE);
+  // 从相关文件中读4096字节到页面中
+  for(int i = 0; i < VMAMAXSIZE; i++) {
+    if(p->vma[i].valid == 1 && (va >= p->vma[i].addrs && va < p->vma[i].addrs + p->vma[i].length)) {
+      struct file* m_file = p->vma[i].m_file;
+      int offset = p->vma[i].off_set + PGROUNDDOWN(va - p->vma[i].addrs); // PGROUNDDOWN(va - p->vma[i].addrs)是为了计算出读的是文件的第几页
+      ilock(m_file->ip);
+      readi(m_file->ip, 0, pa, offset, PGSIZE);
+      iunlock(m_file->ip);
+      // 映射到用户地址空间
+      pte_flags = PTE_U;
+      if(p->vma[i].prot & PROT_READ) pte_flags |= PTE_R;
+      if(p->vma[i].prot & PROT_WRITE) pte_flags |= PTE_W;
+      if(p->vma[i].prot & PROT_EXEC) pte_flags |= PTE_X;
+      if(mappages(p->pagetable, va, PGSIZE, pa, pte_flags) == -1) {
+        kfree((void *)pa);
+        return -1;
+      }
+      return 0;
+    }
+  }
+
+  return -1;
 }
 
 //
@@ -67,6 +105,11 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if(r_scause() == 13 || r_scause() == 15) {  // 如果是缺页异常
+    uint64 va = r_stval();
+    if(mmap_hander(p->pagetable, va) < 0) {
+      p->killed = 1;
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
